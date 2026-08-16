@@ -6,6 +6,11 @@
       "provider": "runsignup",
       "raceId": 205693,
       "featured": true
+    },
+    {
+      "id": "hillsboro-five-alarm-5k-2026",
+      "provider": "runsignup",
+      "raceId": 204418
     }
   ]
 }
