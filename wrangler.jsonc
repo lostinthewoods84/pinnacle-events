@@ -5,5 +5,9 @@
   "compatibility_date": "2026-08-16",
   "observability": { "enabled": true },
   "workers_dev": true,
-  "vars": { "CACHE_TTL_SECONDS": "900", "REQUEST_TIMEOUT_MS": "5000" }
+  "vars": {
+    "CACHE_TTL_SECONDS": "900",
+    "REQUEST_TIMEOUT_MS": "5000",
+    "GITHUB_REPOSITORY": "lostinthewoods84/pinnacle-events"
+  }
 }
