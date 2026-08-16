@@ -1,0 +1,49 @@
+name: Auto-merge admin event
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  validate-and-merge:
+    if: startsWith(github.head_ref, 'amy/add-')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: admin-event-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restrict admin changes to event configuration
+        run: |
+          changed="$(git diff --name-only origin/main...HEAD)"
+          test "$changed" = "config/events.json"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run check
+
+      - name: Merge validated event
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const result = await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              merge_method: 'squash'
+            });
+            if (!result.data.merged) {
+              core.setFailed(result.data.message || 'GitHub did not merge the event request');
+            }
