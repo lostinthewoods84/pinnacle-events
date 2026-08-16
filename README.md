@@ -82,3 +82,26 @@ Run `npm run check`. Tests cover configuration, normalization, grouping, HTTP fa
 Revert the offending Git commit and merge the revert, or select the last known-good Worker version in Cloudflare. Keep the old Squarespace Events collection under **Not Linked** throughout validation so the previous homepage block can be restored quickly. Do not edit deployed Worker code in the Cloudflare console.
 
 Facebook Event creation remains manual in the MVP.
+
+## Private event administration
+
+The `/admin` route lets a non-technical operator paste a RunSignup dashboard URL, public URL, or race ID, preview the normalized event, and open an auditable GitHub pull request. The `Auto-merge admin event` workflow permits only `config/events.json` changes from `amy/add-*` branches, runs the complete validation suite, and automatically merges successful requests. Failed validation remains open and does not deploy. The public `/` route must remain unauthenticated.
+
+### Protect `/admin` with Cloudflare Access
+
+1. In Cloudflare Zero Trust, create a self-hosted Access application for the Worker's `workers.dev` hostname with path `/admin*`.
+2. Add an Allow policy containing only Aaron's and Amy's email addresses. Email one-time PIN is sufficient if no identity provider is configured.
+3. Do not protect the root path `/`; runners and the Squarespace iframe need public access.
+4. The Worker rejects admin requests that do not contain Cloudflare's authenticated-email header, even if the route is accidentally exposed.
+
+### GitHub credential
+
+Create a fine-grained GitHub personal access token owned by the repository owner and restricted to only `lostinthewoods84/pinnacle-events`. Grant repository permissions:
+
+- Contents: Read and write
+- Pull requests: Read and write
+- Metadata: Read-only (automatic)
+
+Choose the shortest practical expiration and record its renewal date. Add it to the Worker as an encrypted secret named `GITHUB_TOKEN`. Never put it in `wrangler.jsonc`, GitHub source, logs, or Squarespace. `GITHUB_REPOSITORY` is a non-secret Worker variable already set by `wrangler.jsonc`.
+
+Admin submissions create a branch and pull request; they never commit directly to `main`. Automated publication is restricted to configuration-only changes that pass CI. Admin responses are not cached, use same-site CSRF protection, and cannot be framed.
