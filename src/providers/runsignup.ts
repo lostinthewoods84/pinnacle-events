@@ -4,7 +4,11 @@ export type RunSignupSecrets = { RUNSIGNUP_API_KEY: string; RUNSIGNUP_API_SECRET
 type Fetch = typeof fetch;
 
 export async function getRunSignupRace(config: RunSignupConfig, env: RunSignupSecrets, fetcher: Fetch = fetch): Promise<NormalizedEvent> {
-  const url = new URL(`https://api.runsignup.com/rest/race/${config.raceId}`);
+  return normalizeRunSignup(config, await requestRunSignup(`https://api.runsignup.com/rest/race/${config.raceId}`, env, fetcher));
+}
+export async function getRunSignupResultSets(raceId:number,eventId:number,env:RunSignupSecrets,fetcher:Fetch=fetch):Promise<unknown>{const url=new URL(`https://api.runsignup.com/rest/race/${raceId}/results/get-result-sets`);url.searchParams.set("event_id",String(eventId));return requestRunSignup(url,env,fetcher)}
+async function requestRunSignup(input:string|URL,env:RunSignupSecrets,fetcher:Fetch):Promise<unknown>{
+  const url = new URL(input);
   url.searchParams.set("format", "json");
   url.searchParams.set("rsu_api_key", required(env.RUNSIGNUP_API_KEY, "RUNSIGNUP_API_KEY"));
   url.searchParams.set("rsu_api_reg", required(env.RUNSIGNUP_CALLER_TOKEN, "RUNSIGNUP_CALLER_TOKEN"));
@@ -17,7 +21,7 @@ export async function getRunSignupRace(config: RunSignupConfig, env: RunSignupSe
   if (!response.ok) throw new Error(`RunSignup returned HTTP ${response.status}`);
   let payload: unknown;
   try { payload = await response.json(); } catch { throw new Error("RunSignup returned malformed JSON"); }
-  return normalizeRunSignup(config, payload);
+  return payload;
 }
 
 export function normalizeRunSignup(config: RunSignupConfig, payload: unknown): NormalizedEvent {

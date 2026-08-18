@@ -22,6 +22,8 @@ function validateEvent(input: unknown, index: number): EventConfig {
   if (typeof e.id !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(e.id)) throw new Error(`Event ${index} has an invalid id`);
   if (e.provider === "runsignup") {
     if (!Number.isInteger(e.raceId) || Number(e.raceId) <= 0) throw new Error(`${e.id}: raceId must be a positive integer`);
+    if (e.resultsUrlOverride !== undefined && !httpsUrl(e.resultsUrlOverride)) throw new Error(`${e.id}: resultsUrlOverride must use HTTPS`);
+    if (e.resultsHidden !== undefined && typeof e.resultsHidden !== "boolean") throw new Error(`${e.id}: resultsHidden must be boolean`);
     return e as EventConfig;
   }
   if (e.provider !== "manual") throw new Error(`${e.id}: unsupported provider`);
