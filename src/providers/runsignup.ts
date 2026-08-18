@@ -10,13 +10,11 @@ export async function getRunSignupResultSets(raceId:number,eventId:number,env:Ru
 async function requestRunSignup(input:string|URL,env:RunSignupSecrets,fetcher:Fetch):Promise<unknown>{
   const url = new URL(input);
   url.searchParams.set("format", "json");
-  url.searchParams.set("rsu_api_key", required(env.RUNSIGNUP_API_KEY, "RUNSIGNUP_API_KEY"));
-  url.searchParams.set("rsu_api_reg", required(env.RUNSIGNUP_CALLER_TOKEN, "RUNSIGNUP_CALLER_TOKEN"));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Number(env.REQUEST_TIMEOUT_MS ?? 5000));
   let response: Response;
   try {
-    response = await fetcher(url, { headers: { "Accept": "application/json", "X-RSU-API-SECRET": required(env.RUNSIGNUP_API_SECRET, "RUNSIGNUP_API_SECRET"), "X-RSU-API-REG-SECRET": required(env.RUNSIGNUP_CALLER_SECRET, "RUNSIGNUP_CALLER_SECRET") }, signal: controller.signal });
+    response = await fetcher(url, { headers: { "Accept": "application/json" }, signal: controller.signal });
   } finally { clearTimeout(timer); }
   if (!response.ok) throw new Error(`RunSignup returned HTTP ${response.status}`);
   let payload: unknown;
@@ -41,5 +39,4 @@ export function normalizeRunSignup(config: RunSignupConfig, payload: unknown): N
   return { id: config.id, provider: "RunSignup", name: race.name, startDateTime: normalizeDate(start), endDateTime: string(first.end_time) ? normalizeDate(string(first.end_time)!) : undefined, location: { name: string(address.name) ?? string(race.place), address: string(address.street), city, state }, registrationUrl, imageUrl: string(race.logo_url) ?? string(race.photo_url), distances: events.map((e, i) => ({ id: String(e.event_id ?? i), name: string(e.name) ?? string(e.event_name) ?? "Race", startDateTime: string(e.start_time) ? normalizeDate(string(e.start_time)!) : undefined, endDateTime: string(e.end_time) ? normalizeDate(string(e.end_time)!) : undefined, registrationStatus: string(e.registration_status) })), featured: config.featured ?? false, order: config.order, sourceStatus: "ok" };
 }
 function string(v: unknown): string | undefined { return typeof v === "string" && v ? v : undefined; }
-function required(v: string | undefined, name: string): string { if (!v) throw new Error(`${name} is not configured`); return v; }
 function normalizeDate(v: string): string { const parsed = new Date(v); if (Number.isNaN(parsed.getTime())) throw new Error("RunSignup returned an invalid date"); return /(?:Z|[+-]\d{2}:\d{2})$/.test(v) ? v : parsed.toISOString(); }
