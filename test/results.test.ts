@@ -1,0 +1,16 @@
+import test from "node:test";import assert from "node:assert/strict";
+import { normalizeResultSets } from "../src/results/discover.ts";
+import { clearResultsCache } from "../src/results/cache.ts";
+import { filterResults,renderResultsPage } from "../src/results/render.ts";
+import { includeInResults,resultCacheTtl,sortResults,type NormalizedRaceResults } from "../src/results/model.ts";
+const race=(overrides:Partial<NormalizedRaceResults>={}):NormalizedRaceResults=>({catalogId:"approved",raceId:42,raceName:"Pinnacle 5K",raceDate:"2026-08-16T09:00:00-04:00",location:{city:"Plainfield",state:"NH"},provider:"RunSignup",raceUrl:"https://runsignup.com/example",availability:"available",resultSets:[{id:9,eventId:3,name:"Overall",eventName:"5K",officialUrl:"https://runsignup.com/Race/Results/42?resultSetId=9"}],lastChecked:"2026-08-16T14:00:00Z",providerStatus:"ok",...overrides});
+test("normalizes only public result sets with official links",()=>{const sets=normalizeResultSets(42,3,"5K",{individual_results_sets:[{individual_result_set_id:9,individual_result_set_name:"Overall",public_results:"T"},{individual_result_set_id:10,individual_result_set_name:"Draft",public_results:"F"}]});assert.equal(sets.length,1);assert.equal(sets[0].officialUrl,"https://runsignup.com/Race/Results/42?resultSetId=9")});
+test("rejects malformed result-set payload",()=>assert.throws(()=>normalizeResultSets(42,3,"5K",{}),/missing result sets/));
+test("supports explicit exceptional results URL",()=>assert.equal(normalizeResultSets(42,3,"5K",{individual_results_sets:[{individual_result_set_id:9,public_results:"T"}]},"https://example.com/results")[0].officialUrl,"https://example.com/results"));
+test("filters by name and year",()=>{const races=[race(),race({raceId:43,raceName:"Mountain 10K",raceDate:"2025-08-16T09:00:00-04:00"})];assert.deepEqual(filterResults(races,"pinnacle","").map(r=>r.raceId),[42]);assert.deepEqual(filterResults(races,"","2025").map(r=>r.raceId),[43])});
+test("sorts newest first",()=>assert.deepEqual(sortResults([race({raceId:1,raceDate:"2024-01-01T00:00:00Z"}),race({raceId:2,raceDate:"2025-01-01T00:00:00Z"})]).map(r=>r.raceId),[2,1]));
+test("pending races expire after seven days",()=>{const pending=race({availability:"pending",resultSets:[]});assert.equal(includeInResults(pending,new Date("2026-08-20T00:00:00Z")),true);assert.equal(includeInResults(pending,new Date("2026-08-25T00:00:00Z")),false)});
+test("future races never appear in results",()=>assert.equal(includeInResults(race({raceDate:"2027-08-16T09:00:00-04:00"}),new Date("2026-08-17T00:00:00Z")),false));
+test("selects lifecycle cache tiers",()=>{assert.equal(resultCacheTtl("2026-08-16",new Date("2026-08-17T12:00:00Z")),60);assert.equal(resultCacheTtl("2026-08-10",new Date("2026-08-17T12:00:00Z")),900);assert.equal(resultCacheTtl("2025-08-10",new Date("2026-08-17T12:00:00Z")),86400)});
+test("renders filters, statuses, multiple actions and escapes text",()=>{const html=renderResultsPage([race({raceName:"Pinnacle <5K>",resultSets:[...race().resultSets,{id:10,eventId:4,name:"10K",eventName:"10K",officialUrl:"https://runsignup.com/Race/Results/42?resultSetId=10"}]})]);assert.match(html,/name="q"/);assert.match(html,/Results available/);assert.match(html,/Overall/);assert.match(html,/10K/);assert.doesNotMatch(html,/<5K>/)});
+test.after(()=>clearResultsCache());

@@ -83,6 +83,29 @@ Revert the offending Git commit and merge the revert, or select the last known-g
 
 Facebook Event creation remains manual in the MVP.
 
+## Public race results
+
+The public results directory is available at `/results`. It uses the same approved RunSignup race IDs in `config/events.json`, discovers public result sets server-side, and links to RunSignup's official results pages. Races absent from the catalog, manual-provider races, and private result sets are never published.
+
+Amy's normal workflow is unchanged: publish the results to RunSignup the same way you do today. Once RunSignup makes them public, the Pinnacle results page finds them automatically. You do not need to use GitHub, Cloudflare, or Squarespace.
+
+Aaron's race-day workflow is also unchanged: publish from RunScore to RunSignup, confirm the result set is public, and allow up to 60 seconds for race-day discovery. Corrections remain authoritative in RunSignup. Recent results refresh every 15 minutes after the first day; older results may remain cached for up to 24 hours.
+
+To backfill history, add the approved RunSignup race IDs to `config/events.json` in one pull request. Past catalog entries must remain in the file. Set `"resultsHidden": true` to suppress an exceptional race. An HTTPS `resultsUrlOverride` is available only for an approved exceptional destination.
+
+If expected results are missing:
+
+1. Confirm the race ID is in `config/events.json`.
+2. Confirm the result set is public in RunSignup and associated with the correct RunSignup event.
+3. Wait for the applicable cache window, then reload `/results`.
+4. Check Worker logs for `results_provider_failure` using the non-sensitive race ID and error category.
+5. Verify the four existing RunSignup secrets and `REQUEST_TIMEOUT_MS`. Never log their values.
+6. Escalate API contract issues to RunSignup API Support at `info@runsignup.com`.
+
+After production verification, add a normal Squarespace navigation link to `https://events.pinnacle-timing.com/results`. A normal link is preferred over an iframe because filters use shareable query parameters and browser history.
+
+Local validation remains `npm run check`. Roll back by reverting the feature commit and redeploying the last known-good Worker. During an incident, Squarespace can temporarily link directly to the relevant RunSignup results page.
+
 ## Private event administration
 
 The `/admin` route lets a non-technical operator paste a RunSignup dashboard URL, public URL, or race ID, preview the normalized event, and open an auditable GitHub pull request. The `Auto-merge admin event` workflow permits only `config/events.json` changes from `amy/add-*` branches, runs the complete validation suite, and automatically merges successful requests. Failed validation remains open and does not deploy. The public `/` route must remain unauthenticated.

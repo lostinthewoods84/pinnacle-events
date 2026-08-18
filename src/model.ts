@@ -5,7 +5,7 @@ export type NormalizedEvent = {
   location: Location; registrationUrl: string; imageUrl?: string; distances: Distance[];
   registrationStatus?: string; featured: boolean; order?: number; sourceStatus: "ok" | "error";
 };
-export type RunSignupConfig = { id: string; provider: "runsignup"; raceId: number; featured?: boolean; hidden?: boolean; order?: number };
+export type RunSignupConfig = { id: string; provider: "runsignup"; raceId: number; featured?: boolean; hidden?: boolean; order?: number; resultsHidden?: boolean; resultsUrlOverride?: string };
 export type ManualConfig = { id: string; provider: "manual"; registrationProvider: string; name: string; startDateTime: string; endDateTime?: string; location: Location; distances: string[]; registrationUrl: string; imageUrl?: string; featured?: boolean; hidden?: boolean; order?: number };
 export type EventConfig = RunSignupConfig | ManualConfig;
 export type AppConfig = { version: 1; events: EventConfig[] };
