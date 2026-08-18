@@ -8,7 +8,7 @@
   "vars": {
     "CACHE_TTL_SECONDS": "900",
     "RESULTS_PENDING_DAYS": "7",
-    "REQUEST_TIMEOUT_MS": "5000",
+    "REQUEST_TIMEOUT_MS": "15000",
     "GITHUB_REPOSITORY": "lostinthewoods84/pinnacle-events"
   }
 }
