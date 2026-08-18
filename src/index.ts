@@ -1,29 +1,25 @@
-import rawConfig from "../config/events.json" with { type: "json" };
-import { validateConfig } from "./config.ts";
-import { isUpcoming, sortEvents, type NormalizedEvent } from "./model.ts";
-import { normalizeManual } from "./providers/manual.ts";
-import { getRunSignupRace, type RunSignupSecrets } from "./providers/runsignup.ts";
+import { isUpcoming, sortEvents } from "./model.ts";
+import { getRunSignupRace } from "./providers/runsignup.ts";
 import { renderPage } from "./render/page.ts";
 import { securityHeaders } from "./security.ts";
-import { discoverRaceResults } from "./results/discover.ts";
 import { includeInResults,sortResults,type NormalizedRaceResults } from "./results/model.ts";
 import { renderResultsPage } from "./results/render.ts";
-import { mapSequential } from "./serial.ts";
-import { accessEmail, adminPage, createEventPullRequest, csrfCookie, newCsrf, parseRaceId, previewPage, slugForEvent, successPage, validCsrf, type GitHubEnv } from "./admin.ts";
+import { accessEmail, adminPage, createEventPullRequest, csrfCookie, newCsrf, parseRaceId, previewPage, slugForEvent, successPage, validCsrf } from "./admin.ts";
+import type {CatalogSnapshot} from "./catalog.ts";import type {Env,ExecutionContextLike} from "./env.ts";export {RaceCatalogCache} from "./race-cache.ts";
 
-type Env = RunSignupSecrets & GitHubEnv & { CACHE_TTL_SECONDS?: string; RESULTS_PENDING_DAYS?: string };
-export async function handleRequest(request: Request, env: Env): Promise<Response> {
+export async function handleRequest(request:Request,env:Env,context?:ExecutionContextLike):Promise<Response>{
   const pathname=new URL(request.url).pathname;
   if(pathname.startsWith("/admin"))return handleAdmin(request,env,pathname);
-  if(pathname==="/results")return handleResults(request,env);
+  if(pathname==="/results")return handleResults(request,env,context);
   if (pathname !== "/") return new Response("Not found",{status:404});
-  const config = validateConfig(rawConfig); const visibleConfig=config.events.filter(e=>!e.hidden); const settled = await mapSequential(visibleConfig,e=>e.provider === "manual" ? Promise.resolve(normalizeManual(e)) : getRunSignupRace(e,env));
-  const events: NormalizedEvent[] = []; let failures=0;
-  settled.forEach((result,i)=>{ if(result.status === "fulfilled") events.push(result.value); else { failures++; console.error("event_provider_failure",{eventId:visibleConfig[i]?.id,error:result.reason instanceof Error?result.reason.message:"unknown"}); }});
-  const upcoming = sortEvents(events.filter(e=>isUpcoming(e)));
-  return new Response(renderPage(upcoming,failures>0),{headers:securityHeaders(Number(env.CACHE_TTL_SECONDS??900))});
+  const snapshot=await catalogSnapshot(env,context);if(!snapshot)return new Response(renderPage([],true),{headers:securityHeaders(30)});
+  const upcoming=sortEvents(snapshot.events.filter(e=>isUpcoming(e)));
+  return new Response(renderPage(upcoming,snapshot.failures>0),{headers:securityHeaders(Number(env.CACHE_TTL_SECONDS??900))});
 }
-async function handleResults(request:Request,env:Env):Promise<Response>{const url=new URL(request.url);const config=validateConfig(rawConfig);const candidates=config.events.filter((event):event is Extract<typeof event,{provider:"runsignup"}>=>event.provider==="runsignup"&&!event.hidden&&!event.resultsHidden);const settled=await mapSequential(candidates,event=>discoverRaceResults(event,env));const races:NormalizedRaceResults[]=[];let failures=0;settled.forEach((result,i)=>{if(result.status==="fulfilled")races.push(result.value);else{failures++;console.warn("results_provider_failure",{raceId:candidates[i]?.raceId,category:result.reason instanceof Error?result.reason.message:"unknown"})}});const visible=sortResults(races.filter(race=>includeInResults(race,new Date(),Number(env.RESULTS_PENDING_DAYS??7))));return new Response(renderResultsPage(visible,url.searchParams.get("q")??"",url.searchParams.get("year")??"",failures>0),{headers:securityHeaders(60)})}
+async function handleResults(request:Request,env:Env,context?:ExecutionContextLike):Promise<Response>{const url=new URL(request.url);const snapshot=await catalogSnapshot(env,context);if(!snapshot)return new Response(renderResultsPage([],url.searchParams.get("q")??"",url.searchParams.get("year")??"",true),{headers:securityHeaders(30)});const visible=sortResults(snapshot.results.filter(race=>includeInResults(race,new Date(),Number(env.RESULTS_PENDING_DAYS??7))));return new Response(renderResultsPage(visible,url.searchParams.get("q")??"",url.searchParams.get("year")??"",snapshot.failures>0),{headers:securityHeaders(60)})}
+
+async function catalogSnapshot(env:Env,context?:ExecutionContextLike):Promise<CatalogSnapshot|undefined>{const stub=env.RACE_CATALOG.getByName("catalog");const response=await stub.fetch("https://catalog/snapshot");if(response.ok)return await response.json() as CatalogSnapshot;if(context)context.waitUntil(stub.fetch("https://catalog/refresh",{method:"POST"}));return undefined}
+async function refreshCatalog(env:Env):Promise<void>{const response=await env.RACE_CATALOG.getByName("catalog").fetch("https://catalog/refresh",{method:"POST"});if(!response.ok)throw new Error(`Catalog refresh returned HTTP ${response.status}`)}
 
 async function handleAdmin(request:Request,env:Env,pathname:string):Promise<Response>{
   const email=accessEmail(request);if(!email)return new Response("This page requires Cloudflare Access.",{status:403});
@@ -45,4 +41,4 @@ async function handleAdmin(request:Request,env:Env,pathname:string):Promise<Resp
   return new Response("Not found",{status:404});
 }
 function html(body:string,status=200,cookie?:string):Response{const headers=securityHeaders(0);headers.set("Cache-Control","no-store");headers.set("Content-Security-Policy","default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");if(cookie)headers.set("Set-Cookie",cookie);return new Response(body,{status,headers});}
-export default { fetch: handleRequest };
+export default {fetch:handleRequest,scheduled(_controller:unknown,env:Env,context:ExecutionContextLike){context.waitUntil(refreshCatalog(env));}};

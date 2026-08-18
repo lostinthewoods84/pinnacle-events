@@ -4,7 +4,7 @@ A server-rendered Cloudflare Worker that publishes Pinnacle Race Timing's approv
 
 ## Architecture
 
-The Worker reads version-controlled configuration, fetches each approved RunSignup race server-side, normalizes all providers into one model, filters completed races, and returns isolated HTML suitable for a Squarespace iframe. One provider failure does not suppress valid events. Successful HTML is cached at Cloudflare for 15 minutes by default.
+The Worker reads version-controlled configuration and serves normalized race data from a durable Cloudflare snapshot. A scheduled refresh processes approved RunSignup races strictly one request at a time every 15 minutes. Public page requests never fan out to RunSignup or wait for the catalog refresh. One provider failure does not suppress valid cached events.
 
 ## Local setup
 
@@ -73,7 +73,7 @@ Run `npm run check`. Tests cover configuration, normalization, grouping, HTTP fa
 
 - **401/403 from RunSignup:** verify the v2 key, header secret, caller token/secret, and race access scope. Secrets never appear in logs.
 - **429:** the affected card is omitted for that request; other cards still render. Check Worker logs and retry after the cache interval.
-- **Stale content:** successful HTML uses `s-maxage` from `CACHE_TTL_SECONDS`, default 900 seconds. Deploying a new version purges Worker code but not necessarily every cached response.
+- **Stale content:** the durable catalog refreshes every 15 minutes and successful HTML uses `s-maxage` from `CACHE_TTL_SECONDS`, default 900 seconds. A failed refresh preserves the last complete snapshot.
 - **Iframe blocked:** inspect `Content-Security-Policy`; ensure the page uses an approved Pinnacle HTTPS origin and no proxy adds `X-Frame-Options`.
 - **Build failure:** confirm Node 24, run `npm ci && npm run check`, and ensure Worker/config names agree.
 
