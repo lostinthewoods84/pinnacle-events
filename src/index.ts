@@ -5,7 +5,7 @@ import { securityHeaders } from "./security.ts";
 import { includeInResults,sortResults,type NormalizedRaceResults } from "./results/model.ts";
 import { renderResultsPage } from "./results/render.ts";
 import { accessEmail, adminPage, createEventPullRequest, csrfCookie, newCsrf, parseRaceId, previewPage, slugForEvent, successPage, validCsrf } from "./admin.ts";
-import type {CatalogSnapshot} from "./catalog.ts";import type {Env,ExecutionContextLike} from "./env.ts";export {RaceCatalogCache} from "./race-cache.ts";
+import rawConfig from "../config/events.json" with {type:"json"};import {buildCatalogSnapshot,type CatalogSnapshot} from "./catalog.ts";import {validateConfig} from "./config.ts";import type {Env,ExecutionContextLike} from "./env.ts";export {RaceCatalogCache} from "./race-cache.ts";
 
 export async function handleRequest(request:Request,env:Env,context?:ExecutionContextLike):Promise<Response>{
   const pathname=new URL(request.url).pathname;
@@ -18,8 +18,8 @@ export async function handleRequest(request:Request,env:Env,context?:ExecutionCo
 }
 async function handleResults(request:Request,env:Env,context?:ExecutionContextLike):Promise<Response>{const url=new URL(request.url);const snapshot=await catalogSnapshot(env,context);if(!snapshot)return new Response(renderResultsPage([],url.searchParams.get("q")??"",url.searchParams.get("year")??"",true),{headers:securityHeaders(30)});const visible=sortResults(snapshot.results.filter(race=>includeInResults(race,new Date(),Number(env.RESULTS_PENDING_DAYS??7))));return new Response(renderResultsPage(visible,url.searchParams.get("q")??"",url.searchParams.get("year")??"",snapshot.failures>0),{headers:securityHeaders(60)})}
 
-async function catalogSnapshot(env:Env,context?:ExecutionContextLike):Promise<CatalogSnapshot|undefined>{const stub=env.RACE_CATALOG.getByName("catalog");const response=await stub.fetch("https://catalog/snapshot");if(response.ok)return await response.json() as CatalogSnapshot;if(context)context.waitUntil(stub.fetch("https://catalog/refresh",{method:"POST"}));return undefined}
-async function refreshCatalog(env:Env):Promise<void>{const response=await env.RACE_CATALOG.getByName("catalog").fetch("https://catalog/refresh",{method:"POST"});if(!response.ok)throw new Error(`Catalog refresh returned HTTP ${response.status}`)}
+async function catalogSnapshot(env:Env,context?:ExecutionContextLike):Promise<CatalogSnapshot|undefined>{const stub=env.RACE_CATALOG.getByName("catalog");const response=await stub.fetch("https://catalog/snapshot");if(response.ok)return await response.json() as CatalogSnapshot;if(context)context.waitUntil(refreshCatalog(env));return undefined}
+export async function refreshCatalog(env:Env):Promise<void>{const stub=env.RACE_CATALOG.getByName("catalog");const previousResponse=await stub.fetch("https://catalog/snapshot");const previous=previousResponse.ok?await previousResponse.json() as CatalogSnapshot:undefined;const snapshot=await buildCatalogSnapshot(validateConfig(rawConfig).events,env);if(previous&&snapshot.failedIds.length){const failed=new Set(snapshot.failedIds);snapshot.events.push(...previous.events.filter(event=>failed.has(event.id)));snapshot.results.push(...previous.results.filter(result=>failed.has(result.catalogId)))}const response=await stub.fetch("https://catalog/snapshot",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(snapshot)});if(!response.ok)throw new Error(`Catalog snapshot write returned HTTP ${response.status}`)}
 
 async function handleAdmin(request:Request,env:Env,pathname:string):Promise<Response>{
   const email=accessEmail(request);if(!email)return new Response("This page requires Cloudflare Access.",{status:403});
