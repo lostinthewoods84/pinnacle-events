@@ -1,10 +1,11 @@
 import { isUpcoming, sortEvents } from "./model.ts";
-import { getRunSignupRace } from "./providers/runsignup.ts";
+import { getRunSignupRace,getRunSignupResultSets } from "./providers/runsignup.ts";
 import { renderPage } from "./render/page.ts";
 import { securityHeaders } from "./security.ts";
 import { includeInResults,sortResults,type NormalizedRaceResults } from "./results/model.ts";
 import { renderResultsPage } from "./results/render.ts";
-import { accessEmail, adminPage, createEventPullRequest, csrfCookie, newCsrf, parseRaceId, previewPage, slugForEvent, successPage, validCsrf } from "./admin.ts";
+import { accessEmail, adminPage, createEventPullRequest, csrfCookie, newCsrf, parseRaceId, previewPage, resultsDiagnosticPage, slugForEvent, successPage, validCsrf,type ResultsDiagnosticReport } from "./admin.ts";
+import {normalizeResultSets} from "./results/discover.ts";
 import rawConfig from "../config/events.json" with {type:"json"};import {buildCatalogSnapshot,type CatalogSnapshot} from "./catalog.ts";import {validateConfig} from "./config.ts";import type {Env,ExecutionContextLike} from "./env.ts";export {RaceCatalogCache} from "./race-cache.ts";
 
 export async function handleRequest(request:Request,env:Env,context?:ExecutionContextLike):Promise<Response>{
@@ -32,12 +33,18 @@ async function handleAdmin(request:Request,env:Env,pathname:string):Promise<Resp
       const raceId=parseRaceId(String(form.get("race")??""));if(!raceId)return html(adminPage(token,"Enter a valid RunSignup URL or race ID."),400,csrfCookie(token));
       const event=await getRunSignupRace({id:`preview-${raceId}`,provider:"runsignup",raceId},env);return html(previewPage(event,raceId,token),200,csrfCookie(token));
     }
+    if(pathname==="/admin/results-test"){
+      const raceId=parseRaceId(String(form.get("race")??""));if(!raceId)throw new Error("Enter a valid completed RunSignup race ID.");
+      const metadataStarted=Date.now();const race=await getRunSignupRace({id:`results-test-${raceId}`,provider:"runsignup",raceId},env);const report:ResultsDiagnosticReport={raceId,raceName:race.name,metadataMs:Date.now()-metadataStarted,events:[]};
+      for(const event of race.distances){const started=Date.now();const eventId=Number(event.id);if(!Number.isInteger(eventId)){report.events.push({eventId:event.id,eventName:event.name,durationMs:Date.now()-started,status:"error",resultSets:[],error:"RunSignup returned a non-numeric event ID."});continue}try{const payload=await getRunSignupResultSets(raceId,eventId,env);const sets=normalizeResultSets(raceId,eventId,event.name,payload);report.events.push({eventId:event.id,eventName:event.name,durationMs:Date.now()-started,status:"ok",resultSets:sets.map(set=>({id:set.id,name:set.name,officialUrl:set.officialUrl}))})}catch(error){report.events.push({eventId:event.id,eventName:event.name,durationMs:Date.now()-started,status:"error",resultSets:[],error:error instanceof Error?error.message:"Unknown RunSignup error"})}}
+      return html(resultsDiagnosticPage(report),200,csrfCookie(token));
+    }
     if(pathname==="/admin/submit"){
       const raceId=Number(form.get("raceId"));if(!Number.isInteger(raceId)||raceId<=0)throw new Error("Invalid event request.");
       const event=await getRunSignupRace({id:`submit-${raceId}`,provider:"runsignup",raceId},env);if(!isUpcoming(event))throw new Error("Completed races cannot be added to the upcoming event list.");
       const url=await createEventPullRequest(env,raceId,slugForEvent(event),form.get("featured")==="true",email);return html(successPage(url));
     }
-  }catch(error){console.error("admin_event_failure",{actor:email,error:error instanceof Error?error.message:"unknown"});return html(adminPage(token,error instanceof Error?error.message:"Unable to create event."),400,csrfCookie(token));}
+  }catch(error){console.error("admin_request_failure",{actor:email,path:pathname,error:error instanceof Error?error.message:"unknown"});return html(adminPage(token,error instanceof Error?error.message:"Unable to complete request."),400,csrfCookie(token));}
   return new Response("Not found",{status:404});
 }
 function html(body:string,status=200,cookie?:string):Response{const headers=securityHeaders(0);headers.set("Cache-Control","no-store");headers.set("Content-Security-Policy","default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");if(cookie)headers.set("Set-Cookie",cookie);return new Response(body,{status,headers});}
