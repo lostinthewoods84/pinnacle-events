@@ -3,6 +3,7 @@ import type { AppConfig, NormalizedEvent } from "./model.ts";
 import { escapeHtml } from "./render/page.ts";
 
 export type GitHubEnv = { GITHUB_TOKEN?: string; GITHUB_REPOSITORY?: string };
+export type ResultsDiagnosticReport = {raceId:number;raceName:string;metadataMs:number;events:Array<{eventId:string;eventName:string;durationMs:number;status:"ok"|"error";resultSets:Array<{id:number;name:string;officialUrl:string}>;error?:string}>};
 
 export function parseRaceId(value: string): number | undefined {
   const trimmed = value.trim();
@@ -24,8 +25,10 @@ export function slugForEvent(event: NormalizedEvent): string {
 }
 
 export function adminPage(csrf: string, message = ""): string {
-  return shell("Add an event", `<h1>Add a RunSignup event</h1><p>Paste the RunSignup dashboard URL, public race URL, or race ID. Nothing is published until the resulting GitHub pull request is merged.</p>${message ? `<p class="message" role="status">${escapeHtml(message)}</p>` : ""}<form method="post" action="/admin/preview"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><label for="race">RunSignup URL or race ID</label><input id="race" name="race" required autocomplete="off" placeholder="https://runsignup.com/Race/Dashboard/Overview/205693"><button type="submit">Preview event</button></form>`);
+  return shell("Pinnacle administration", `<h1>Pinnacle administration</h1>${message ? `<p class="message" role="status">${escapeHtml(message)}</p>` : ""}<h2>Add a RunSignup event</h2><p>Paste the RunSignup dashboard URL, public race URL, or race ID. Nothing is published until the resulting GitHub pull request is merged.</p><form method="post" action="/admin/preview"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><label for="race">RunSignup URL or race ID</label><input id="race" name="race" required autocomplete="off" placeholder="https://runsignup.com/Race/Dashboard/Overview/205693"><button type="submit">Preview event</button></form><h2>Test published results</h2><p>Use a completed race with published results. This makes live, sequential RunSignup requests and does not modify the catalog.</p><form method="post" action="/admin/results-test"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><label for="results-race">Completed RunSignup race ID</label><input id="results-race" name="race" required autocomplete="off" inputmode="numeric" placeholder="205693"><button type="submit">Test results API</button></form>`);
 }
+
+export function resultsDiagnosticPage(report:ResultsDiagnosticReport):string{const rows=report.events.map(event=>`<section class="preview"><p class="eyebrow">Event ${escapeHtml(event.eventId)} · ${event.durationMs} ms</p><h2>${escapeHtml(event.eventName)}</h2><p><strong>${event.status==="ok"?"Request succeeded":"Request failed"}</strong></p>${event.error?`<p class="message">${escapeHtml(event.error)}</p>`:""}${event.resultSets.length?`<ul>${event.resultSets.map(set=>`<li><a href="${escapeHtml(set.officialUrl)}">${escapeHtml(set.name)}</a> <span class="eyebrow">Result set ${set.id}</span></li>`).join("")}</ul>`:`<p>No public result sets returned.</p>`}</section>`).join("");return shell("Results API diagnostic",`<a href="/admin">← Back to administration</a><h1>Results API diagnostic</h1><p><strong>${escapeHtml(report.raceName)}</strong> · RunSignup race ${report.raceId}</p><p>Race metadata request: ${report.metadataMs} ms</p>${rows||"<p>No events were returned for this race.</p>"}`)}
 
 export function previewPage(event: NormalizedEvent, raceId: number, csrf: string): string {
   const location = [event.location.name,event.location.city,event.location.state].filter(Boolean).join(" · ");
