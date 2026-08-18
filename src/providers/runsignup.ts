@@ -2,19 +2,24 @@ import type { NormalizedEvent, RunSignupConfig } from "../model.ts";
 
 export type RunSignupSecrets = { RUNSIGNUP_API_KEY: string; RUNSIGNUP_API_SECRET: string; RUNSIGNUP_CALLER_TOKEN: string; RUNSIGNUP_CALLER_SECRET: string; REQUEST_TIMEOUT_MS?: string };
 type Fetch = typeof fetch;
+const RUNSIGNUP_API_BASE = "https://runsignup.com/rest";
 
 export async function getRunSignupRace(config: RunSignupConfig, env: RunSignupSecrets, fetcher: Fetch = fetch): Promise<NormalizedEvent> {
-  return normalizeRunSignup(config, await requestRunSignup(`https://api.runsignup.com/rest/race/${config.raceId}`, env, fetcher));
+  return normalizeRunSignup(config, await requestRunSignup(`${RUNSIGNUP_API_BASE}/race/${config.raceId}`, env, fetcher));
 }
-export async function getRunSignupResultSets(raceId:number,eventId:number,env:RunSignupSecrets,fetcher:Fetch=fetch):Promise<unknown>{const url=new URL(`https://api.runsignup.com/rest/race/${raceId}/results/get-result-sets`);url.searchParams.set("event_id",String(eventId));return requestRunSignup(url,env,fetcher)}
+export async function getRunSignupResultSets(raceId:number,eventId:number,env:RunSignupSecrets,fetcher:Fetch=fetch):Promise<unknown>{const url=new URL(`${RUNSIGNUP_API_BASE}/race/${raceId}/results/get-result-sets`);url.searchParams.set("event_id",String(eventId));return requestRunSignup(url,env,fetcher)}
 async function requestRunSignup(input:string|URL,env:RunSignupSecrets,fetcher:Fetch):Promise<unknown>{
   const url = new URL(input);
   url.searchParams.set("format", "json");
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Number(env.REQUEST_TIMEOUT_MS ?? 5000));
+  const timeoutMs = Number(env.REQUEST_TIMEOUT_MS ?? 5000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
     response = await fetcher(url, { headers: { "Accept": "application/json" }, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(`RunSignup request to ${url.hostname} timed out after ${timeoutMs}ms`);
+    throw error;
   } finally { clearTimeout(timer); }
   if (!response.ok) throw new Error(`RunSignup returned HTTP ${response.status}`);
   let payload: unknown;
