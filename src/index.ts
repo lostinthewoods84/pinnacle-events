@@ -8,6 +8,7 @@ import { securityHeaders } from "./security.ts";
 import { discoverRaceResults } from "./results/discover.ts";
 import { includeInResults,sortResults,type NormalizedRaceResults } from "./results/model.ts";
 import { renderResultsPage } from "./results/render.ts";
+import { mapSequential } from "./serial.ts";
 import { accessEmail, adminPage, createEventPullRequest, csrfCookie, newCsrf, parseRaceId, previewPage, slugForEvent, successPage, validCsrf, type GitHubEnv } from "./admin.ts";
 
 type Env = RunSignupSecrets & GitHubEnv & { CACHE_TTL_SECONDS?: string; RESULTS_PENDING_DAYS?: string };
@@ -16,13 +17,13 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   if(pathname.startsWith("/admin"))return handleAdmin(request,env,pathname);
   if(pathname==="/results")return handleResults(request,env);
   if (pathname !== "/") return new Response("Not found",{status:404});
-  const config = validateConfig(rawConfig); const settled = await Promise.allSettled(config.events.filter(e=>!e.hidden).map(e=>e.provider === "manual" ? Promise.resolve(normalizeManual(e)) : getRunSignupRace(e,env)));
+  const config = validateConfig(rawConfig); const visibleConfig=config.events.filter(e=>!e.hidden); const settled = await mapSequential(visibleConfig,e=>e.provider === "manual" ? Promise.resolve(normalizeManual(e)) : getRunSignupRace(e,env));
   const events: NormalizedEvent[] = []; let failures=0;
-  settled.forEach((result,i)=>{ if(result.status === "fulfilled") events.push(result.value); else { failures++; console.error("event_provider_failure",{eventId:config.events[i]?.id,error:result.reason instanceof Error?result.reason.message:"unknown"}); }});
+  settled.forEach((result,i)=>{ if(result.status === "fulfilled") events.push(result.value); else { failures++; console.error("event_provider_failure",{eventId:visibleConfig[i]?.id,error:result.reason instanceof Error?result.reason.message:"unknown"}); }});
   const upcoming = sortEvents(events.filter(e=>isUpcoming(e)));
   return new Response(renderPage(upcoming,failures>0),{headers:securityHeaders(Number(env.CACHE_TTL_SECONDS??900))});
 }
-async function handleResults(request:Request,env:Env):Promise<Response>{const url=new URL(request.url);const config=validateConfig(rawConfig);const candidates=config.events.filter((event):event is Extract<typeof event,{provider:"runsignup"}>=>event.provider==="runsignup"&&!event.hidden&&!event.resultsHidden);const settled=await Promise.allSettled(candidates.map(event=>discoverRaceResults(event,env)));const races:NormalizedRaceResults[]=[];let failures=0;settled.forEach((result,i)=>{if(result.status==="fulfilled")races.push(result.value);else{failures++;console.warn("results_provider_failure",{raceId:candidates[i]?.raceId,category:result.reason instanceof Error?result.reason.message:"unknown"})}});const visible=sortResults(races.filter(race=>includeInResults(race,new Date(),Number(env.RESULTS_PENDING_DAYS??7))));return new Response(renderResultsPage(visible,url.searchParams.get("q")??"",url.searchParams.get("year")??"",failures>0),{headers:securityHeaders(60)})}
+async function handleResults(request:Request,env:Env):Promise<Response>{const url=new URL(request.url);const config=validateConfig(rawConfig);const candidates=config.events.filter((event):event is Extract<typeof event,{provider:"runsignup"}>=>event.provider==="runsignup"&&!event.hidden&&!event.resultsHidden);const settled=await mapSequential(candidates,event=>discoverRaceResults(event,env));const races:NormalizedRaceResults[]=[];let failures=0;settled.forEach((result,i)=>{if(result.status==="fulfilled")races.push(result.value);else{failures++;console.warn("results_provider_failure",{raceId:candidates[i]?.raceId,category:result.reason instanceof Error?result.reason.message:"unknown"})}});const visible=sortResults(races.filter(race=>includeInResults(race,new Date(),Number(env.RESULTS_PENDING_DAYS??7))));return new Response(renderResultsPage(visible,url.searchParams.get("q")??"",url.searchParams.get("year")??"",failures>0),{headers:securityHeaders(60)})}
 
 async function handleAdmin(request:Request,env:Env,pathname:string):Promise<Response>{
   const email=accessEmail(request);if(!email)return new Response("This page requires Cloudflare Access.",{status:403});
