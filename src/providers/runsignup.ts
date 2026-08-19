@@ -8,6 +8,7 @@ export async function getRunSignupRace(config: RunSignupConfig, env: RunSignupSe
   return normalizeRunSignup(config, await requestRunSignup(`${RUNSIGNUP_API_BASE}/race/${config.raceId}`, env, fetcher));
 }
 export async function getRunSignupResultSets(raceId:number,eventId:number,env:RunSignupSecrets,fetcher:Fetch=fetch):Promise<unknown>{const url=new URL(`${RUNSIGNUP_API_BASE}/race/${raceId}/results/get-result-sets`);url.searchParams.set("event_id",String(eventId));return requestRunSignup(url,env,fetcher)}
+export async function getRunSignupResultSettings(raceId:number,env:RunSignupSecrets,fetcher:Fetch=fetch):Promise<unknown>{return requestRunSignup(`${RUNSIGNUP_API_BASE}/race/${raceId}/results/settings`,env,fetcher)}
 async function requestRunSignup(input:string|URL,env:RunSignupSecrets,fetcher:Fetch):Promise<unknown>{
   const url = new URL(input);
   url.searchParams.set("format", "json");
