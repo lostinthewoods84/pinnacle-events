@@ -3,7 +3,35 @@ import type { AppConfig, NormalizedEvent } from "./model.ts";
 import { escapeHtml } from "./render/page.ts";
 
 export type GitHubEnv = { GITHUB_TOKEN?: string; GITHUB_REPOSITORY?: string };
-export type ResultsDiagnosticReport = {raceId:number;raceName:string;metadataMs:number;events:Array<{eventId:string;eventName:string;durationMs:number;status:"ok"|"error";resultSets:Array<{id:number;name:string;officialUrl:string}>;error?:string}>};
+export type ResultPayloadDiagnostic = {
+  topLevelKeys: string[];
+  arrayField?: string;
+  returnedCount?: number;
+  returnedSets: Array<{id?:number;name?:string;publicResults?:string;alternateEventIds:number[];finishers?:number}>;
+};
+export type ResultsDiagnosticReport = {raceId:number;raceName:string;metadataMs:number;events:Array<{eventId:string;eventName:string;durationMs:number;status:"ok"|"error";resultSets:Array<{id:number;name:string;officialUrl:string}>;payload?:ResultPayloadDiagnostic;error?:string}>};
+
+export function summarizeResultSetPayload(payload:unknown):ResultPayloadDiagnostic{
+  if(!payload||typeof payload!=="object"||Array.isArray(payload))return {topLevelKeys:[],returnedSets:[]};
+  const root=payload as Record<string,unknown>;
+  const topLevelKeys=Object.keys(root).sort();
+  const arrayField=topLevelKeys.find(key=>key==="individual_results_sets")??topLevelKeys.find(key=>key.toLowerCase().includes("result")&&Array.isArray(root[key]));
+  const raw=arrayField&&Array.isArray(root[arrayField])?root[arrayField] as unknown[]:undefined;
+  const returnedSets=(raw??[]).flatMap(item=>{
+    if(!item||typeof item!=="object"||Array.isArray(item))return [];
+    const set=item as Record<string,unknown>;
+    const id=finiteNumber(set.individual_result_set_id);
+    const finishers=finiteNumber(set.num_finishers);
+    return [{
+      ...(id!==undefined?{id}:{}),
+      ...(typeof set.individual_result_set_name==="string"?{name:set.individual_result_set_name}:{}),
+      ...(typeof set.public_results==="string"?{publicResults:set.public_results}:{}),
+      alternateEventIds:Array.isArray(set.alt_event_ids)?set.alt_event_ids.map(finiteNumber).filter((value):value is number=>value!==undefined):[],
+      ...(finishers!==undefined?{finishers}:{}),
+    }];
+  });
+  return {topLevelKeys,...(arrayField?{arrayField}:{}),...(raw?{returnedCount:raw.length}:{}),returnedSets};
+}
 
 export function parseRaceId(value: string): number | undefined {
   const trimmed = value.trim();
@@ -28,7 +56,7 @@ export function adminPage(csrf: string, message = ""): string {
   return shell("Pinnacle administration", `<h1>Pinnacle administration</h1>${message ? `<p class="message" role="status">${escapeHtml(message)}</p>` : ""}<h2>Add a RunSignup event</h2><p>Paste the RunSignup dashboard URL, public race URL, or race ID. Nothing is published until the resulting GitHub pull request is merged.</p><form method="post" action="/admin/preview"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><label for="race">RunSignup URL or race ID</label><input id="race" name="race" required autocomplete="off" placeholder="https://runsignup.com/Race/Dashboard/Overview/205693"><button type="submit">Preview event</button></form><h2>Test published results</h2><p>Use a completed race with published results. This makes live, sequential RunSignup requests and does not modify the catalog.</p><form method="post" action="/admin/results-test"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><label for="results-race">Completed RunSignup race ID</label><input id="results-race" name="race" required autocomplete="off" inputmode="numeric" placeholder="205693"><button type="submit">Test results API</button></form>`);
 }
 
-export function resultsDiagnosticPage(report:ResultsDiagnosticReport):string{const rows=report.events.map(event=>`<section class="preview"><p class="eyebrow">Event ${escapeHtml(event.eventId)} · ${event.durationMs} ms</p><h2>${escapeHtml(event.eventName)}</h2><p><strong>${event.status==="ok"?"Request succeeded":"Request failed"}</strong></p>${event.error?`<p class="message">${escapeHtml(event.error)}</p>`:""}${event.resultSets.length?`<ul>${event.resultSets.map(set=>`<li><a href="${escapeHtml(set.officialUrl)}">${escapeHtml(set.name)}</a> <span class="eyebrow">Result set ${set.id}</span></li>`).join("")}</ul>`:`<p>No public result sets returned.</p>`}</section>`).join("");return shell("Results API diagnostic",`<a href="/admin">← Back to administration</a><h1>Results API diagnostic</h1><p><strong>${escapeHtml(report.raceName)}</strong> · RunSignup race ${report.raceId}</p><p>Race metadata request: ${report.metadataMs} ms</p>${rows||"<p>No events were returned for this race.</p>"}`)}
+export function resultsDiagnosticPage(report:ResultsDiagnosticReport):string{const rows=report.events.map(event=>`<section class="preview"><p class="eyebrow">Event ${escapeHtml(event.eventId)} · ${event.durationMs} ms</p><h2>${escapeHtml(event.eventName)}</h2><p><strong>${event.status==="ok"?"Request succeeded":"Request failed"}</strong></p>${event.error?`<p class="message">${escapeHtml(event.error)}</p>`:""}${event.resultSets.length?`<ul>${event.resultSets.map(set=>`<li><a href="${escapeHtml(set.officialUrl)}">${escapeHtml(set.name)}</a> <span class="eyebrow">Result set ${set.id}</span></li>`).join("")}</ul>`:`<p>No public result sets returned.</p>`}${event.payload?renderPayloadDiagnostic(event.payload):""}</section>`).join("");return shell("Results API diagnostic",`<a href="/admin">← Back to administration</a><h1>Results API diagnostic</h1><p><strong>${escapeHtml(report.raceName)}</strong> · RunSignup race ${report.raceId}</p><p>Race metadata request: ${report.metadataMs} ms</p>${rows||"<p>No events were returned for this race.</p>"}`)}
 
 export function previewPage(event: NormalizedEvent, raceId: number, csrf: string): string {
   const location = [event.location.name,event.location.city,event.location.state].filter(Boolean).join(" · ");
@@ -63,3 +91,8 @@ async function github(fetcher:typeof fetch,url:string,init:RequestInit):Promise<
 function required(value:string|undefined,name:string):string{if(!value)throw new Error(`${name} is not configured`);return value;}
 function encodeBase64(value:string):string{const bytes=new TextEncoder().encode(value);let binary="";for(const b of bytes)binary+=String.fromCharCode(b);return btoa(binary);}
 function decodeBase64(value:string):string{const binary=atob(value.replace(/\s/g,""));const bytes=Uint8Array.from(binary,c=>c.charCodeAt(0));return new TextDecoder().decode(bytes);}
+function finiteNumber(value:unknown):number|undefined{const number=Number(value);return Number.isFinite(number)?number:undefined;}
+function renderPayloadDiagnostic(payload:ResultPayloadDiagnostic):string{
+  const sets=payload.returnedSets.length?`<ul>${payload.returnedSets.map(set=>`<li>ID: ${set.id??"missing"}; name: ${escapeHtml(set.name??"missing")}; public_results: ${escapeHtml(set.publicResults??"missing")}; finishers: ${set.finishers??"not returned"}; alternate event IDs: ${set.alternateEventIds.length?set.alternateEventIds.join(", "):"none"}</li>`).join("")}</ul>`:"<p>No result-set records were present in the returned array.</p>";
+  return `<details><summary>Sanitized RunSignup response</summary><p>Top-level fields: ${payload.topLevelKeys.length?payload.topLevelKeys.map(escapeHtml).join(", "):"none"}</p><p>Detected result-set field: ${escapeHtml(payload.arrayField??"none")}</p><p>Returned records: ${payload.returnedCount??"unknown"}</p>${sets}<p class="eyebrow">Credentials, request headers, participant records, and result rows are not displayed.</p></details>`;
+}
