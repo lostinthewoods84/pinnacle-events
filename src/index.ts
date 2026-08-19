@@ -1,11 +1,11 @@
 import { isUpcoming, sortEvents } from "./model.ts";
-import { getRunSignupRace,getRunSignupResultSets } from "./providers/runsignup.ts";
+import { getRunSignupRace,getRunSignupResultSets,getRunSignupResultSettings } from "./providers/runsignup.ts";
 import { renderPage } from "./render/page.ts";
 import { securityHeaders } from "./security.ts";
 import { includeInResults,sortResults,type NormalizedRaceResults } from "./results/model.ts";
 import { renderResultsPage } from "./results/render.ts";
 import { accessEmail, adminPage, createEventPullRequest, csrfCookie, newCsrf, parseRaceId, previewPage, resultsDiagnosticPage, slugForEvent, successPage, summarizeResultSetPayload, validCsrf,type ResultsDiagnosticReport } from "./admin.ts";
-import {normalizeResultSets} from "./results/discover.ts";
+import {normalizeExternalResultLinks,normalizeResultSets} from "./results/discover.ts";
 import rawConfig from "../config/events.json" with {type:"json"};import {buildCatalogSnapshot,type CatalogSnapshot} from "./catalog.ts";import {validateConfig} from "./config.ts";import type {Env,ExecutionContextLike} from "./env.ts";export {RaceCatalogCache} from "./race-cache.ts";
 
 export async function handleRequest(request:Request,env:Env,context?:ExecutionContextLike):Promise<Response>{
@@ -37,6 +37,7 @@ async function handleAdmin(request:Request,env:Env,pathname:string):Promise<Resp
       const raceId=parseRaceId(String(form.get("race")??""));if(!raceId)throw new Error("Enter a valid completed RunSignup race ID.");
       const metadataStarted=Date.now();const race=await getRunSignupRace({id:`results-test-${raceId}`,provider:"runsignup",raceId},env);const report:ResultsDiagnosticReport={raceId,raceName:race.name,metadataMs:Date.now()-metadataStarted,events:[]};
       for(const event of race.distances){const started=Date.now();const eventId=Number(event.id);if(!Number.isInteger(eventId)){report.events.push({eventId:event.id,eventName:event.name,durationMs:Date.now()-started,status:"error",resultSets:[],error:"RunSignup returned a non-numeric event ID."});continue}let diagnostic:ReturnType<typeof summarizeResultSetPayload>|undefined;try{const payload=await getRunSignupResultSets(raceId,eventId,env);diagnostic=summarizeResultSetPayload(payload);const sets=normalizeResultSets(raceId,eventId,event.name,payload);report.events.push({eventId:event.id,eventName:event.name,durationMs:Date.now()-started,status:"ok",resultSets:sets.map(set=>({id:set.id,name:set.name,officialUrl:set.officialUrl})),payload:diagnostic})}catch(error){report.events.push({eventId:event.id,eventName:event.name,durationMs:Date.now()-started,status:"error",resultSets:[],...(diagnostic?{payload:diagnostic}:{}),error:error instanceof Error?error.message:"Unknown RunSignup error"})}}
+      const settingsStarted=Date.now();try{const links=normalizeExternalResultLinks(raceId,await getRunSignupResultSettings(raceId,env));report.settingsMs=Date.now()-settingsStarted;report.externalResultLinks=links.map(link=>({name:link.name,officialUrl:link.officialUrl}))}catch(error){report.settingsMs=Date.now()-settingsStarted;report.settingsError=error instanceof Error?error.message:"Unknown RunSignup error"}
       return html(resultsDiagnosticPage(report),200,csrfCookie(token));
     }
     if(pathname==="/admin/submit"){
