@@ -7,19 +7,19 @@ const RUNSIGNUP_API_BASE = "https://api.runsignup.com/rest";
 export async function getRunSignupRace(config: RunSignupConfig, env: RunSignupSecrets, fetcher: Fetch = fetch): Promise<NormalizedEvent> {
   return normalizeRunSignup(config, await requestRunSignup(`${RUNSIGNUP_API_BASE}/race/${config.raceId}`, env, fetcher));
 }
-export async function getRunSignupResultSets(raceId:number,eventId:number,env:RunSignupSecrets,fetcher:Fetch=fetch):Promise<unknown>{const url=new URL(`${RUNSIGNUP_API_BASE}/race/${raceId}/results/get-result-sets`);url.searchParams.set("event_id",String(eventId));return requestRunSignup(url,env,fetcher)}
+export async function getRunSignupResultSets(raceId:number,eventId:number,env:RunSignupSecrets,fetcher:Fetch=fetch):Promise<unknown>{const url=new URL(`${RUNSIGNUP_API_BASE}/race/${raceId}/results/get-result-sets`);url.searchParams.set("event_id",String(eventId));return requestPublicRunSignup(url,env,fetcher)}
 export async function getRunSignupResultSettings(raceId:number,env:RunSignupSecrets,fetcher:Fetch=fetch):Promise<unknown>{return requestRunSignup(`${RUNSIGNUP_API_BASE}/race/${raceId}/results/settings`,env,fetcher)}
-async function requestRunSignup(input:string|URL,env:RunSignupSecrets,fetcher:Fetch):Promise<unknown>{
+async function requestPublicRunSignup(input:string|URL,env:RunSignupSecrets,fetcher:Fetch):Promise<unknown>{return requestRunSignup(input,env,fetcher,false)}
+async function requestRunSignup(input:string|URL,env:RunSignupSecrets,fetcher:Fetch,authenticated=true):Promise<unknown>{
   const url = new URL(input);
   url.searchParams.set("format", "json");
-  url.searchParams.set("rsu_api_key", required(env.RUNSIGNUP_API_KEY, "RUNSIGNUP_API_KEY"));
-  url.searchParams.set("rsu_api_reg", required(env.RUNSIGNUP_CALLER_TOKEN, "RUNSIGNUP_CALLER_TOKEN"));
+  if(authenticated){url.searchParams.set("rsu_api_key",required(env.RUNSIGNUP_API_KEY,"RUNSIGNUP_API_KEY"));url.searchParams.set("rsu_api_reg",required(env.RUNSIGNUP_CALLER_TOKEN,"RUNSIGNUP_CALLER_TOKEN"));}
   const controller = new AbortController();
   const timeoutMs = Number(env.REQUEST_TIMEOUT_MS ?? 5000);
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
-    response = await fetcher(url, { headers: { "Accept": "application/json", "X-RSU-API-SECRET": required(env.RUNSIGNUP_API_SECRET, "RUNSIGNUP_API_SECRET"), "X-RSU-API-REG-SECRET": required(env.RUNSIGNUP_CALLER_SECRET, "RUNSIGNUP_CALLER_SECRET") }, signal: controller.signal });
+    const headers:Record<string,string>={"Accept":"application/json"};if(authenticated){headers["X-RSU-API-SECRET"]=required(env.RUNSIGNUP_API_SECRET,"RUNSIGNUP_API_SECRET");headers["X-RSU-API-REG-SECRET"]=required(env.RUNSIGNUP_CALLER_SECRET,"RUNSIGNUP_CALLER_SECRET")}response=await fetcher(url,{headers,signal:controller.signal});
   } catch (error) {
     if (controller.signal.aborted) throw new Error(`RunSignup request to ${url.hostname} timed out after ${timeoutMs}ms`);
     throw error;
