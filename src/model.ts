@@ -10,6 +10,10 @@ export type ManualConfig = { id: string; provider: "manual"; registrationProvide
 export type EventConfig = RunSignupConfig | ManualConfig;
 export type AppConfig = { version: 1; events: EventConfig[] };
 
+export function hasStarted(event: NormalizedEvent, now = new Date()): boolean {
+  return Date.parse(event.startDateTime) <= now.getTime();
+}
+
 export function isUpcoming(event: NormalizedEvent, now = new Date()): boolean {
   const date = event.startDateTime.slice(0, 10);
   const offset = event.startDateTime.match(/(Z|[+-]\d{2}:\d{2})$/)?.[1];
