@@ -14,7 +14,7 @@
     { "tag": "v1", "new_sqlite_classes": ["RaceCatalogCache"] }
   ],
   "triggers": {
-    "crons": []
+    "crons": ["*/15 * * * *"]
   },
   "vars": {
     "CACHE_TTL_SECONDS": "900",
