@@ -5,6 +5,9 @@
   "compatibility_date": "2026-08-16",
   "observability": { "enabled": true },
   "workers_dev": true,
+  "routes": [
+    { "pattern": "events.pinnacle-timing.com", "custom_domain": true }
+  ],
   "durable_objects": {
     "bindings": [
       { "name": "RACE_CATALOG", "class_name": "RaceCatalogCache" }
